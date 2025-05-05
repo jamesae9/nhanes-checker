@@ -83,7 +83,14 @@ function checkForNHANES(text) {
         details: `Missing adequate acknowledgment of complex survey design (found only ${foundTerms.length} terms, need at least 2)`
       };
     }
-  */}
+  */
+     // Return a default state indicating it was skipped
+     return {
+      passed: true, // Keeps it from being treated as a critical failure for now
+      skipped: true, // Add the skipped flag
+      details: "Check for Survey Design Acknowledgment is currently disabled."
+    };
+  }
   
   function checkWeightingMethodology(text) {
     /* -------- Temporarily diabling - should these be seperate checks? If to be included -----------
@@ -149,7 +156,15 @@ function checkForNHANES(text) {
         details: `Weighting methodology issues: ${issues.join('; ')}`
       };
     }
-  */}
+  */
+
+    // Return a default state indicating it was skipped
+    return {
+      passed: true, // Keeps it from being treated as a critical failure for now
+      skipped: true, // Add the skipped flag
+      details: "Check for Weighting Methodology is currently disabled."
+  };
+ }
   
   function checkNHANESDateRange(text) {
       // Regex to find potential year ranges, possibly associated with NHANES

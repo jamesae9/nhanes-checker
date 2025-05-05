@@ -3,7 +3,7 @@
 // Contains functions for updating the user interface.
 
 // Function to display results
-// ***** ADD export HERE *****
+
 export function displayResults(results) {
     // Get references to HTML elements
     const resultsEl = document.getElementById('results');
@@ -92,15 +92,25 @@ export function displayResults(results) {
         // Add details for each check result
         results.checkResults.forEach(check => {
             const checkItem = document.createElement('div');
-            // Use the 'pass' or 'fail' CSS classes for the check item container
-            checkItem.className = check.passed ? 'check-item pass' : 'check-item fail';
+            let statusText = '';
+            let itemClass = 'check-item'; // Base class for styling
 
-            // Create status text with color spans for clarity
-            const statusText = check.passed
-                ? '<span style="color:#28a745; font-weight:bold;">✓ Pass</span>'
-                : '<span style="color:#dc3545; font-weight:bold;">✗ Fail</span>';
+            // *** THIS IS THE MODIFIED LOGIC FROM OPTION 1 ***
+            if (check.skipped) { // Check for the skipped flag first
+                itemClass += ' skipped'; // Add the specific .skipped class (you need to define this in CSS)
+                statusText = '<span style="color:#6c757d; font-weight:bold;">⚪ Skipped</span>'; // Use a neutral color/icon
+            } else if (check.passed) { // If not skipped, check if passed
+                itemClass += ' pass'; // Add the .pass class
+                statusText = '<span style="color:#28a745; font-weight:bold;">✓ Pass</span>'; // Green check
+            } else { // If not skipped and not passed, it failed
+                itemClass += ' fail'; // Add the .fail class
+                statusText = '<span style="color:#dc3545; font-weight:bold;">✗ Fail</span>'; // Red cross
+            }
+            // *** END OF MODIFIED LOGIC ***
 
-            // Populate the check item's content
+            checkItem.className = itemClass; // Apply the determined class (pass, fail, or skipped)
+
+            // Populate the check item's content (this part remains the same)
             checkItem.innerHTML = `
               <h4>${check.checkName}: ${statusText}</h4>
               <p>${check.details || 'No details provided.'}</p> <!-- Add fallback for details -->
@@ -108,7 +118,7 @@ export function displayResults(results) {
             checksSection.appendChild(checkItem); // Append the formatted item to the <details> element
         });
 
-        resultsContent.appendChild(checksSection); // Add the whole collapsible section
+        resultsContent.appendChild(checksSection); // Add the whole collapsible section to the results area
     }
 
     // Scrolling to results is handled in main.js after this function is called
