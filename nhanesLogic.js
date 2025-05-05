@@ -51,6 +51,8 @@ function checkForNHANES(text) {
   }
   
   function checkSurveyDesignAcknowledgment(text) {
+    /* ---- Temporarily diabling - come back to this when we know what want to be checked (if this should be included)
+
     // Look for terms related to complex survey design
     const surveyDesignTerms = [
       /\bcomplex\s+(?:survey|sampling)\s+design\b/i,
@@ -81,9 +83,11 @@ function checkForNHANES(text) {
         details: `Missing adequate acknowledgment of complex survey design (found only ${foundTerms.length} terms, need at least 2)`
       };
     }
-  }
+  */}
   
   function checkWeightingMethodology(text) {
+    /* -------- Temporarily diabling - should these be seperate checks? If to be included -----------
+
     // Look for weighting methodology mentions
     const weightingTerms = [
       /\bsampling\s+weights?\b/i,
@@ -105,7 +109,7 @@ function checkForNHANES(text) {
       if (term.test(text)) {
         foundTerms.push(term.toString().replace(/\/i$|^\//g, ''));
       }
-    });
+    );
   
     // Check for statistical software mentions
     const softwareTerms = [
@@ -145,7 +149,7 @@ function checkForNHANES(text) {
         details: `Weighting methodology issues: ${issues.join('; ')}`
       };
     }
-  }
+  */}
   
   function checkNHANESDateRange(text) {
       // Regex to find potential year ranges, possibly associated with NHANES
@@ -538,7 +542,7 @@ function checkForNHANES(text) {
   
   // ============= Main Orchestration Function =============
   
-  // ***** ADD export HERE *****
+
   export function checkNHANESManuscript(text, title = 'Untitled Manuscript') {
     console.log(`Checking manuscript: ${title}`);
   
