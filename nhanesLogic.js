@@ -166,69 +166,118 @@ function checkForNHANES(text) {
   };
  }
   
-  function checkNHANESDateRange(text) {
-      // Regex to find potential year ranges, possibly associated with NHANES
-      const cycleRegex = /(?:NHANES|National Health and Nutrition Examination Survey)?\s*(?:data)?\s*(?:from)?\s*(?:the)?\s*(?:years?)?\s*(?:(?:19|20)\d{2})(?:\s*[-–—]\s*(?:(?:19|20)\d{2}))?|(?:(?:19|20)\d{2})(?:\s*[-–—]\s*(?:(?:19|20)\d{2}))?\s*(?:NHANES|National Health and Nutrition Examination Survey)/gi;
-  
-      let matches = text.match(cycleRegex) || [];
-      let foundValidRange = false;
-      let foundInvalidRange = false;
-      let validRangeDetails = [];
-      let invalidRangeDetails = [];
-  
-      if (matches.length === 0) {
-          // Broader search for any YYYY-YYYY pattern if specific NHANES context is missed
-          const genericRangeRegex = /(?:19|20)\d{2}\s*[-–—]\s*(?:19|20)\d{2}/g;
-          matches = text.match(genericRangeRegex) || [];
-      }
-  
-      // If still no matches, we can't perform the check effectively
-      if (matches.length === 0) {
-          return {
-              passed: true, // Pass leniently if no range is mentioned
-              details: "No specific NHANES cycle year ranges found to validate."
-          };
-      }
-  
-      const yearRegex = /(?:19|20)\d{2}/g;
-  
-      for (const matchText of matches) {
-          const years = (matchText.match(yearRegex) || []).map(Number);
-          if (years.length === 2) {
-              const [startYear, endYear] = years;
-              // Check: Odd start year, Even end year, End year is Start year + 1
-              if (startYear % 2 === 1 && endYear % 2 === 0 && endYear === startYear + 1) {
-                  foundValidRange = true;
-                  validRangeDetails.push(`${startYear}-${endYear}`);
-              } else {
-                   foundInvalidRange = true;
-                   invalidRangeDetails.push(`${startYear}-${endYear} (in "${matchText}")`);
-              }
+/**
+ * Checks text for year ranges potentially related to NHANES or similar datasets.
+ * Validates ranges based on:
+ * 1. Plausibility (within reasonable year boundaries: MIN_PLAUSIBLE_YEAR to currentYear).
+ * 2. Start year is odd, end year is even.
+ * Filters out ranges likely representing non-calendar years (e.g., page numbers, future years).
+ *
+ * @param {string} text The text to search within.
+ * @returns {{passed: boolean, details: string}} An object indicating if validation passed and details.
+ */
+ function checkNHANESDateRangeRevisedV2(text) {
+  // --- Configuration for Plausibility ---
+  const MIN_PLAUSIBLE_YEAR = 1950; // ----- Adjust to 1990??? -----
+  const currentYear = new Date().getFullYear();
+  const MAX_PLAUSIBLE_YEAR = currentYear; 
+  // --- End Configuration ---
+
+  // Regex to find potential year ranges, possibly associated with NHANES
+  // Looks for YYYY-YYYY patterns, optionally near NHANES keywords.
+  const cycleRegex = /(?:NHANES|National Health and Nutrition Examination Survey)?\s*(?:data)?\s*(?:from)?\s*(?:the)?\s*(?:years?)?\s*(?:(?:19|20)\d{2})(?:\s*[-–—]\s*(?:(?:19|20)\d{2}))?|(?:(?:19|20)\d{2})(?:\s*[-–—]\s*(?:(?:19|20)\d{2}))?\s*(?:NHANES|National Health and Nutrition Examination Survey)/gi;
+
+  let matches = text.match(cycleRegex) || [];
+  let foundValidRange = false;
+  let foundInvalidRange = false; // Range looks like a date but fails odd/even check
+  let foundImplausibleRange = false; // Range looks like YYYY-YYYY but fails plausibility (out of date bounds)
+  let validRangeDetails = [];
+  let invalidRangeDetails = [];
+  let implausibleRangeDetails = []; // Store details for debugging/info if needed
+
+  if (matches.length === 0) {
+      // Broader search for *any* YYYY-YYYY pattern if specific NHANES context is missed
+      const genericRangeRegex = /(?:19|20)\d{2}\s*[-–—]\s*(?:19|20)\d{2}/g;
+      matches = text.match(genericRangeRegex) || [];
+  }
+
+  // If still no matches, we can't perform the check effectively
+  if (matches.length === 0) {
+      return {
+          passed: true, // Pass leniently if no range is mentioned
+          details: "No potential year ranges found to validate."
+      };
+  }
+
+  const yearRegex = /(?:19|20)\d{2}/g;
+
+  for (const matchText of matches) {
+      const years = (matchText.match(yearRegex) || []).map(Number);
+
+      // We are only interested in pairs of years (start-end)
+      if (years.length === 2) {
+          const [startYear, endYear] = years;
+
+          // --- Plausibility Checks (Modified: No span check, updated MAX year) ---
+          const isPlausible =
+              startYear >= MIN_PLAUSIBLE_YEAR &&
+              endYear <= MAX_PLAUSIBLE_YEAR && // Uses updated MAX_PLAUSIBLE_YEAR
+              endYear >= startYear;           // End must be >= Start
+
+          if (!isPlausible) {
+               foundImplausibleRange = true;
+               implausibleRangeDetails.push(`${startYear}-${endYear} (in "${matchText}")`);
+               continue; // Skip validation for this implausible range
           }
-          // Note: This doesn't explicitly handle single years mentioned (e.g., "NHANES 2017")
-          // or combined ranges (e.g., "NHANES 2011-2018"). Focus is on 2-year cycles.
-      }
-  
-      // Determine final result based on findings
-      if (foundValidRange) {
-          return {
-              passed: true,
-              details: `Valid NHANES cycle date range(s) found: ${[...new Set(validRangeDetails)].join(', ')}.` +
-                       (foundInvalidRange ? ` (Also found potentially invalid ranges: ${[...new Set(invalidRangeDetails)].join(', ')})` : '')
-          };
-      } else if (foundInvalidRange) {
-           return {
-              passed: false,
-              details: `No valid NHANES cycle ranges (OddStart-EvenEnd, End=Start+1) confirmed. Found ranges with issues: ${[...new Set(invalidRangeDetails)].join(', ')}`
-          };
-      } else {
-           // No valid or invalid ranges identified from the patterns searched
-           return {
-              passed: true, // Pass leniently if no standard format found
-              details: "Could not definitively identify standard NHANES cycle year ranges for validation."
-          };
+
+          // --- Validation Check (Odd Start, Even End) ---
+          if (startYear % 2 === 1 && endYear % 2 === 0) {
+              // Meets the odd-start, even-end criteria
+              foundValidRange = true;
+              validRangeDetails.push(`${startYear}-${endYear}`);
+          } else {
+              // Is a plausible date range but fails the odd/even rule
+              foundInvalidRange = true;
+              invalidRangeDetails.push(`${startYear}-${endYear} (in "${matchText}")`);
+          }
       }
   }
+
+  // --- Determine final result based on findings ---
+  let details = "";
+  let passed = true; // Default to passing unless an explicit invalid range is found
+
+  if (foundValidRange) {
+      passed = true; // At least one valid range found
+      details = `Valid OddStart-EvenEnd date range(s) found: ${[...new Set(validRangeDetails)].join(', ')}.`;
+      if (foundInvalidRange) {
+          details += ` (Also found plausible ranges failing the OddStart-EvenEnd rule: ${[...new Set(invalidRangeDetails)].join(', ')})`;
+      }
+       if (foundImplausibleRange) {
+           // Optional: Add mention of filtered ranges
+          // details += ` (Ignored potentially non-date ranges due to date bounds: ${[...new Set(implausibleRangeDetails)].join(', ')})`;
+       }
+  } else if (foundInvalidRange) {
+      passed = false; // Explicitly invalid ranges found, and no valid ones
+      details = `No valid OddStart-EvenEnd ranges confirmed. Found plausible ranges with issues: ${[...new Set(invalidRangeDetails)].join(', ')}.`;
+       if (foundImplausibleRange) {
+          // Optional: Add mention of filtered ranges
+           // details += ` (Also ignored potentially non-date ranges due to date bounds: ${[...new Set(implausibleRangeDetails)].join(', ')})`;
+      }
+  } else if (foundImplausibleRange) {
+      // Only found ranges that were filtered out as implausible (e.g., page numbers, future dates)
+       passed = true; // Lenient pass - no *date* ranges were found to violate the rule
+       // **MODIFIED Message**: Removed mention of span width
+       details = "Found number ranges, but they were filtered out as unlikely calendar year ranges (e.g., potentially page numbers or out of date bounds).";
+  }
+   else {
+      // Matches were found by regex, but didn't yield 2 years, or something unexpected occurred.
+      passed = true; // Pass leniently
+      details = "Could not definitively identify plausible year ranges for validation from the text patterns found.";
+  }
+
+   return { passed, details };
+}
   
   
   function checkNHANESCycleRecency(text) {
