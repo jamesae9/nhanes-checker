@@ -280,79 +280,109 @@ function checkForNHANES(text) {
 }
   
   
-function checkNHANESCycleRecency(text) {
+/**
+ * Checks text for YYYY-YYYY date ranges that DIRECTLY FOLLOW an NHANES mention
+ * according to a specific pattern.
+ * Validates ranges based on:
+ * 1. Plausibility (within reasonable year boundaries: MIN_PLAUSIBLE_YEAR to currentYear).
+ * 2. Start year is odd, end year is even.
+ *
+ * @param {string} text The text to search within.
+ * @returns {{passed: boolean, details: string}} An object indicating if validation passed and details.
+ */
+ function checkNHANESCycleRecency(text) {
   const MIN_PLAUSIBLE_YEAR = 1950;
-  const currentActualYear = new Date().getFullYear(); // The real current year
-  const RECENCY_THRESHOLD_YEARS = 15; // Check if data is within the last 15 years
+  const currentYear = new Date().getFullYear();
+  const MAX_PLAUSIBLE_YEAR = currentYear;
 
-  // Regex to find potential year ranges or single years, possibly associated with NHANES
-  // match[1] is the end year of a range (YYYY-YYYY), match[2] is a single year (YYYY)
-  const cycleRegex = /(?:NHANES|National Health and Nutrition Examination Survey)?\s*(?:data from)?\s*(?:(?:(?:19|20)\d{2})\s*[-–—]\s*((?:19|20)\d{2})|((?:19|20)\d{2}))/gi;
+  // MODIFIED Regex:
+  // This regex specifically looks for "NHANES_KEYWORD [optional_words] YYYY-YYYY"
+  // The NHANES keyword part is MANDATORY for a match.
+  const nhanesThenDateRangeRegex =
+      /(?:NHANES|National Health and Nutrition Examination Survey)\s*(?:data)?\s*(?:from)?\s*(?:the)?\s*(?:years?)?\s*((?:19|20)\d{2})\s*[-–—]\s*((?:19|20)\d{2})/gi;
+  // Part 1: NHANES Keywords (non-optional)
+  // Part 2: Optional filler words like "data from the years"
+  // Part 3: Start Year (captured)
+  // Part 4: Separator
+  // Part 5: End Year (captured)
 
-  let latestPlausibleYearFound = 0;
-  let match;
+  let matches = text.match(nhanesThenDateRangeRegex) || [];
+  // Note: text.match with a global regex returns an array of strings that matched.
+  // Each string will be like "NHANES 1999-2000".
 
-  // --- Pass 1: Specific NHANES context ---
-  while ((match = cycleRegex.exec(text)) !== null) {
-      const endYearInRange = match[1] ? parseInt(match[1], 10) : 0;
-      const singleYear = match[2] ? parseInt(match[2], 10) : 0;
+  let foundValidRange = false;
+  let foundInvalidRange = false;
+  let foundImplausibleRange = false;
+  let validRangeDetails = [];
+  let invalidRangeDetails = [];
+  let implausibleRangeDetails = [];
 
-      let currentMatchYear = 0;
-      if (endYearInRange >= MIN_PLAUSIBLE_YEAR && endYearInRange <= currentActualYear) {
-          currentMatchYear = Math.max(currentMatchYear, endYearInRange);
-      }
-      if (singleYear >= MIN_PLAUSIBLE_YEAR && singleYear <= currentActualYear) {
-          currentMatchYear = Math.max(currentMatchYear, singleYear);
-      }
-
-      if (currentMatchYear > latestPlausibleYearFound) {
-          latestPlausibleYearFound = currentMatchYear;
-      }
+  if (matches.length === 0) {
+      return {
+          passed: true, // Pass leniently if no "NHANES... YYYY-YYYY" pattern is found
+          details: "No date ranges found directly following an NHANES mention with the expected pattern."
+      };
   }
 
-  // --- Pass 2: Broader search if specific context yielded no plausible year ---
+  const yearRegex = /(?:19|20)\d{2}/g; // To extract the two years from the matched string
 
-  if (latestPlausibleYearFound === 0) {
-      const genericYearRegex = /(?:19|20)\d{2}/g;
-      const allYearsInText = (text.match(genericYearRegex) || []).map(Number);
-      
-      for (const year of allYearsInText) {
-          if (year >= MIN_PLAUSIBLE_YEAR && year <= currentActualYear) {
-              if (year > latestPlausibleYearFound) {
-                  latestPlausibleYearFound = year;
-              }
+  for (const matchText of matches) { // e.g., matchText = "NHANES 1999-2000"
+      const years = (matchText.match(yearRegex) || []).map(Number);
+
+      if (years.length === 2) {
+          const [startYear, endYear] = years;
+
+          const isPlausible =
+              startYear >= MIN_PLAUSIBLE_YEAR &&
+              endYear <= MAX_PLAUSIBLE_YEAR &&
+              endYear >= startYear;
+
+          if (!isPlausible) {
+              foundImplausibleRange = true;
+              implausibleRangeDetails.push(`${startYear}-${endYear} (in "${matchText}")`);
+              continue;
+          }
+
+          if (startYear % 2 === 1 && endYear % 2 === 0) {
+              foundValidRange = true;
+              validRangeDetails.push(`${startYear}-${endYear}`);
+          } else {
+              foundInvalidRange = true;
+              invalidRangeDetails.push(`${startYear}-${endYear} (in "${matchText}")`);
           }
       }
+      // If years.length is not 2, it means the regex matched, but we couldn't get two years.
+      // This should be rare with the well-defined nhanesThenDateRangeRegex.
   }
 
-  if (latestPlausibleYearFound === 0) {
-      return {
-          passed: true, // Don't fail solely on not finding a year
-          details: `Could not determine a plausible most recent NHANES cycle year (between ${MIN_PLAUSIBLE_YEAR}-${currentActualYear}) used.`
-      };
-  }
+  // --- Determine final result (logic remains the same) ---
+  let details = "";
+  let passed = true;
 
-  // The end year of an NHANES cycle is typically the second year (even).
-  // If we found an odd year, assume it's the start of a cycle ending the next year.
-  // This cycleEndYear could be in the future if latestPlausibleYearFound is an odd currentActualYear.
-  const cycleEndYear = latestPlausibleYearFound % 2 === 0 ? latestPlausibleYearFound : latestPlausibleYearFound + 1;
-
-  // The comparison should be against the actual current year.
-  const yearDifference = currentActualYear - cycleEndYear;
-
-  // If cycleEndYear is in the future (e.g. latest was 2023, current is 2024, cycleEnd is 2024)
-  // yearDifference will be <= 0. This is recent.
-  if (yearDifference < RECENCY_THRESHOLD_YEARS) {
-      return {
-          passed: true,
-          details: `Most recent plausible NHANES data likely ends around ${cycleEndYear}. This is within the last ${RECENCY_THRESHOLD_YEARS} years (approx. ${yearDifference < 0 ? 0 : yearDifference} years ago).`
-      };
+  if (foundValidRange) {
+      passed = true;
+      details = `Valid OddStart-EvenEnd date range(s) following an NHANES mention found: ${[...new Set(validRangeDetails)].join(', ')}.`;
+      if (foundInvalidRange) {
+          details += ` (Also found plausible ranges following NHANES mentions that failed the OddStart-EvenEnd rule: ${[...new Set(invalidRangeDetails)].join(', ')})`;
+      }
+      if (foundImplausibleRange) {
+          // details += ` (Ignored some ranges due to date bounds: ${[...new Set(implausibleRangeDetails)].join(', ')})`;
+      }
+  } else if (foundInvalidRange) {
+      passed = false;
+      details = `No valid OddStart-EvenEnd ranges confirmed following NHANES mentions. Found plausible ranges with issues: ${[...new Set(invalidRangeDetails)].join(', ')}.`;
+      if (foundImplausibleRange) {
+          // details += ` (Also ignored some ranges due to date bounds: ${[...new Set(implausibleRangeDetails)].join(', ')})`;
+      }
+  } else if (foundImplausibleRange) {
+      passed = true; // Lenient pass if only implausible ones were found matching the pattern
+      details = "Found date ranges following NHANES mentions, but they were filtered out as implausible (e.g., out of date bounds).";
   } else {
-      return {
-          passed: false,
-          details: `Most recent plausible NHANES data likely ends around ${cycleEndYear}. This is ${yearDifference} years ago (older than the ${RECENCY_THRESHOLD_YEARS}-year threshold). Data might be outdated.`
-      };
+      // This case means nhanesThenDateRangeRegex found matches, but they didn't yield 2 years for validation.
+      passed = true; // Pass leniently
+      details = "Could not definitively validate year ranges from the 'NHANES...YYYY-YYYY' patterns found.";
   }
+  return { passed, details };
 }
   
   function checkTitleTemplate(text) {
