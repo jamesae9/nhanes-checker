@@ -280,61 +280,80 @@ function checkForNHANES(text) {
 }
   
   
-  function checkNHANESCycleRecency(text) {
-      // Regex to find potential year ranges or single years, associated with NHANES if possible
-      const cycleRegex = /(?:NHANES|National Health and Nutrition Examination Survey)?\s*(?:(?:(?:19|20)\d{2})\s*[-–—]\s*((?:19|20)\d{2})|((?:19|20)\d{2}))/gi;
-  
-      let latestYear = 0;
-      let match;
-  
-      while ((match = cycleRegex.exec(text)) !== null) {
-          // match[1] is the end year of a range, match[2] is a single year
-          const endYearInRange = match[1] ? parseInt(match[1], 10) : 0;
-          const singleYear = match[2] ? parseInt(match[2], 10) : 0;
-  
-          const currentMatchYear = Math.max(endYearInRange, singleYear);
-          if (currentMatchYear > latestYear) {
-              latestYear = currentMatchYear;
-          }
+function checkNHANESCycleRecency(text) {
+  const MIN_PLAUSIBLE_YEAR = 1950;
+  const currentActualYear = new Date().getFullYear(); // The real current year
+  const RECENCY_THRESHOLD_YEARS = 15; // Check if data is within the last 15 years
+
+  // Regex to find potential year ranges or single years, possibly associated with NHANES
+  // match[1] is the end year of a range (YYYY-YYYY), match[2] is a single year (YYYY)
+  const cycleRegex = /(?:NHANES|National Health and Nutrition Examination Survey)?\s*(?:data from)?\s*(?:(?:(?:19|20)\d{2})\s*[-–—]\s*((?:19|20)\d{2})|((?:19|20)\d{2}))/gi;
+
+  let latestPlausibleYearFound = 0;
+  let match;
+
+  // --- Pass 1: Specific NHANES context ---
+  while ((match = cycleRegex.exec(text)) !== null) {
+      const endYearInRange = match[1] ? parseInt(match[1], 10) : 0;
+      const singleYear = match[2] ? parseInt(match[2], 10) : 0;
+
+      let currentMatchYear = 0;
+      if (endYearInRange >= MIN_PLAUSIBLE_YEAR && endYearInRange <= currentActualYear) {
+          currentMatchYear = Math.max(currentMatchYear, endYearInRange);
       }
-  
-       // If the specific regex didn't find anything, try a broader search for any 4-digit year
-       if (latestYear === 0) {
-          const genericYearRegex = /(?:19|20)\d{2}/g;
-          const allYears = (text.match(genericYearRegex) || []).map(Number);
-          if (allYears.length > 0) {
-             latestYear = Math.max(...allYears);
-             // console.log("Recency check: Found latest year using generic regex:", latestYear);
-          }
-       }
-  
-  
-      if (latestYear === 0) {
-          return {
-              passed: true, // Don't fail solely on not finding a year
-              details: "Could not determine the most recent NHANES cycle year used."
-          };
+      if (singleYear >= MIN_PLAUSIBLE_YEAR && singleYear <= currentActualYear) {
+          currentMatchYear = Math.max(currentMatchYear, singleYear);
       }
-  
-      const currentYear = new Date().getFullYear();
-      // The end year of an NHANES cycle is the second year (even).
-      // If we found an odd year, assume it's the start of a cycle ending the next year.
-      const cycleEndYear = latestYear % 2 === 0 ? latestYear : latestYear + 1;
-  
-      const yearDifference = currentYear - cycleEndYear;
-  
-      if (yearDifference < 10) {
-          return {
-              passed: true,
-              details: `Most recent NHANES data likely ends around ${cycleEndYear}, which is ${yearDifference} years ago (within 10 years).`
-          };
-      } else {
-          return {
-              passed: false,
-              details: `Most recent NHANES data likely ends around ${cycleEndYear}, which is ${yearDifference} years ago (10 years or more). Data might be outdated.`
-          };
+
+      if (currentMatchYear > latestPlausibleYearFound) {
+          latestPlausibleYearFound = currentMatchYear;
       }
   }
+
+  // --- Pass 2: Broader search if specific context yielded no plausible year ---
+
+  if (latestPlausibleYearFound === 0) {
+      const genericYearRegex = /(?:19|20)\d{2}/g;
+      const allYearsInText = (text.match(genericYearRegex) || []).map(Number);
+      
+      for (const year of allYearsInText) {
+          if (year >= MIN_PLAUSIBLE_YEAR && year <= currentActualYear) {
+              if (year > latestPlausibleYearFound) {
+                  latestPlausibleYearFound = year;
+              }
+          }
+      }
+  }
+
+  if (latestPlausibleYearFound === 0) {
+      return {
+          passed: true, // Don't fail solely on not finding a year
+          details: `Could not determine a plausible most recent NHANES cycle year (between ${MIN_PLAUSIBLE_YEAR}-${currentActualYear}) used.`
+      };
+  }
+
+  // The end year of an NHANES cycle is typically the second year (even).
+  // If we found an odd year, assume it's the start of a cycle ending the next year.
+  // This cycleEndYear could be in the future if latestPlausibleYearFound is an odd currentActualYear.
+  const cycleEndYear = latestPlausibleYearFound % 2 === 0 ? latestPlausibleYearFound : latestPlausibleYearFound + 1;
+
+  // The comparison should be against the actual current year.
+  const yearDifference = currentActualYear - cycleEndYear;
+
+  // If cycleEndYear is in the future (e.g. latest was 2023, current is 2024, cycleEnd is 2024)
+  // yearDifference will be <= 0. This is recent.
+  if (yearDifference < RECENCY_THRESHOLD_YEARS) {
+      return {
+          passed: true,
+          details: `Most recent plausible NHANES data likely ends around ${cycleEndYear}. This is within the last ${RECENCY_THRESHOLD_YEARS} years (approx. ${yearDifference < 0 ? 0 : yearDifference} years ago).`
+      };
+  } else {
+      return {
+          passed: false,
+          details: `Most recent plausible NHANES data likely ends around ${cycleEndYear}. This is ${yearDifference} years ago (older than the ${RECENCY_THRESHOLD_YEARS}-year threshold). Data might be outdated.`
+      };
+  }
+}
   
   function checkTitleTemplate(text) {
     // Extract the title (assuming it's near the beginning, possibly after "Title:")
@@ -719,4 +738,3 @@ function checkForNHANES(text) {
   
     return results;
     }
-    
