@@ -176,7 +176,7 @@ function checkForNHANES(text) {
  * @param {string} text The text to search within.
  * @returns {{passed: boolean, details: string}} An object indicating if validation passed and details.
  */
- function checkNHANESDateRangeRevisedV2(text) {
+ function checkNHANESDateRange(text) {
   // --- Configuration for Plausibility ---
   const MIN_PLAUSIBLE_YEAR = 1950; // ----- Adjust to 1990??? -----
   const currentYear = new Date().getFullYear();
@@ -636,10 +636,10 @@ function checkForNHANES(text) {
       { name: "2a. NHANES Citation", func: checkNHANESCitation, step: 2, critical: true },
       { name: "2b. Survey Design Acknowledgment", func: checkSurveyDesignAcknowledgment, step: 2, critical: true },
       { name: "2c. Weighting Methodology", func: checkWeightingMethodology, step: 2, critical: true },
-      { name: "3. NHANES Date Range", func: checkNHANESDateRange, step: 3, critical: false }, // Often problematic, make non-critical fail?
-      { name: "4. NHANES Cycle Recency", func: checkNHANESCycleRecency, step: 4, critical: false }, // Make non-critical?
-      { name: "5. Title Template Check", func: checkTitleTemplate, step: 5, critical: false }, // Subjective, non-critical fail
-      { name: "6. Author Red Flags", func: checkAuthorRedFlags, step: 6, critical: false } // Subjective, non-critical fail
+      { name: "3. NHANES Date Range", func: checkNHANESDateRange, step: 3, critical: false }, 
+      { name: "4. NHANES Cycle Recency", func: checkNHANESCycleRecency, step: 4, critical: false },
+      { name: "5. Title Template Check", func: checkTitleTemplate, step: 5, critical: false },
+      { name: "6. Author Red Flags", func: checkAuthorRedFlags, step: 6, critical: false }
     ];
   
     let currentStep = 1;
@@ -667,11 +667,12 @@ function checkForNHANES(text) {
        results.checkResults.push({
          checkName: check.name,
          passed: checkResult.passed,
-         details: checkResult.details
+         details: checkResult.details,
+         skipped: checkResult.skipped // Propagate skipped status if present
        });
   
-       // Handle failed check
-       if (!checkResult.passed) {
+       // Handle failed check (only if not skipped)
+       if (!checkResult.passed && !checkResult.skipped) {
             if (check.step === 2) { // Track methodology failures specifically
                  methodologyPassed = false;
             }
@@ -712,10 +713,10 @@ function checkForNHANES(text) {
           results.details.push("✓ ALL CRITICAL CHECKS PASSED.");
      } else {
           // If it failed, ensure a final message indicates failure cause if possible
-          if (results.failStep === 0) results.failStep = currentStep; // Assign last step if failStep wasn't set
+          if (results.failStep === 0 && results.isNHANES) results.failStep = currentStep; // Assign last step if failStep wasn't set for an NHANES doc
            results.details.push(`✗ Manuscript check failed at Step ${results.failStep}.`);
      }
   
     return results;
-  }
-  
+    }
+    
